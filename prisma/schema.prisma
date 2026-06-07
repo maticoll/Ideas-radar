@@ -1,0 +1,137 @@
+// Idea Radar — data model
+// Default provider is SQLite for zero-setup local runs.
+// To use PostgreSQL: set provider = "postgresql" and DATABASE_URL accordingly,
+// then run `npm run db:push && npm run db:seed`.
+// Array-like fields are stored as JSON strings so the schema is portable
+// across SQLite and Postgres; helpers in src/lib/json.ts encode/decode them.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String      @id @default(cuid())
+  name      String
+  email     String      @unique
+  createdAt DateTime    @default(now()) @map("created_at")
+  saved     SavedIdea[]
+
+  @@map("users")
+}
+
+model RawSignal {
+  id                 String              @id @default(cuid())
+  source             String // reddit | twitter | producthunt
+  sourceUrl          String              @map("source_url")
+  sourceAuthor       String?             @map("source_author")
+  text               String
+  engagementScore    Int                 @default(0) @map("engagement_score")
+  createdAtSource    DateTime            @map("created_at_source")
+  collectedAt        DateTime            @default(now()) @map("collected_at")
+  language           String              @default("en")
+  category           String
+  keywords           String              @default("[]") // JSON array
+  painScore          Int                 @default(0) @map("pain_score")
+  paymentIntentScore Int                 @default(0) @map("payment_intent_score")
+  matchedPattern     String?             @map("matched_pattern")
+  opportunities      OpportunitySignal[]
+
+  @@index([source])
+  @@index([category])
+  @@map("raw_signals")
+}
+
+model ProductHuntProduct {
+  id               String   @id @default(cuid())
+  name             String
+  description      String
+  url              String
+  launchDate       DateTime @map("launch_date")
+  upvotes          Int      @default(0)
+  commentsCount    Int      @default(0) @map("comments_count")
+  lastActivityDate DateTime @map("last_activity_date")
+  abandonedScore   Int      @default(0) @map("abandoned_score")
+  activeReviewScore Int     @default(0) @map("active_review_score")
+  siteStatus       String   @default("unknown") @map("site_status")
+  category         String
+
+  @@map("product_hunt_products")
+}
+
+model Trend {
+  id             String   @id @default(cuid())
+  keyword        String
+  region         String   @default("Worldwide")
+  trendScore     Int      @default(0) @map("trend_score")
+  growth12m      Int      @default(0) @map("growth_12m") // percent
+  relatedQueries String   @default("[]") @map("related_queries") // JSON array
+  series         String   @default("[]") // JSON array of {month, value}
+  collectedAt    DateTime @default(now()) @map("collected_at")
+
+  @@map("trends")
+}
+
+model Opportunity {
+  id                 String              @id @default(cuid())
+  title              String
+  problem            String
+  audience           String
+  whyNow             String              @default("") @map("why_now")
+  evidence           String              @default("") // narrative summary
+  gap                String
+  mvp                String
+  businessModel      String              @map("business_model")
+  competitors        String              @default("[]") // JSON array
+  category           String
+  region             String              @default("Worldwide")
+  segment            String              @default("B2C") // B2B | B2C | B2B2C
+  demandScore        Int                 @default(0) @map("demand_score")
+  painScore          Int                 @default(0) @map("pain_score")
+  paymentIntentScore Int                 @default(0) @map("payment_intent_score")
+  trendScore         Int                 @default(0) @map("trend_score")
+  competitionScore   Int                 @default(0) @map("competition_score")
+  executionScore     Int                 @default(0) @map("execution_score")
+  finalScore         Int                 @default(0) @map("final_score")
+  scoreBreakdown     String              @default("{}") @map("score_breakdown") // JSON
+  trendKeyword       String?             @map("trend_keyword")
+  rankDate           DateTime            @default(now()) @map("rank_date")
+  previousRank       Int?                @map("previous_rank")
+  rank               Int?
+  createdAt          DateTime            @default(now()) @map("created_at")
+  signals            OpportunitySignal[]
+  saved              SavedIdea[]
+
+  @@index([category])
+  @@index([finalScore])
+  @@map("opportunities")
+}
+
+model OpportunitySignal {
+  id            String      @id @default(cuid())
+  opportunityId String      @map("opportunity_id")
+  rawSignalId   String      @map("raw_signal_id")
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  rawSignal     RawSignal   @relation(fields: [rawSignalId], references: [id], onDelete: Cascade)
+
+  @@unique([opportunityId, rawSignalId])
+  @@map("opportunity_signals")
+}
+
+model SavedIdea {
+  id            String      @id @default(cuid())
+  userId        String      @map("user_id")
+  opportunityId String      @map("opportunity_id")
+  status        String      @default("research") // research | validate | discard | build
+  notes         String      @default("")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, opportunityId])
+  @@map("saved_ideas")
+}
