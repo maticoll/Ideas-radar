@@ -1,16 +1,16 @@
 // Idea Radar — data model
-// Default provider is SQLite for zero-setup local runs.
-// To use PostgreSQL: set provider = "postgresql" and DATABASE_URL accordingly,
-// then run `npm run db:push && npm run db:seed`.
-// Array-like fields are stored as JSON strings so the schema is portable
-// across SQLite and Postgres; helpers in src/lib/json.ts encode/decode them.
+// Provider is PostgreSQL (Neon) for Vercel deploys.
+// DATABASE_URL must point to your Postgres instance.
+// For local dev you can point DATABASE_URL to the same Neon DB (or any Postgres).
+// Array-like fields are stored as JSON strings so the schema stays portable;
+// helpers in src/lib/json.ts encode/decode them.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 

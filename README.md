@@ -14,8 +14,7 @@ las **5 mejores ideas** rankeadas por tamaño de demanda y oportunidad.
 ## Stack
 
 - **Front-end + Back-end:** Next.js 14 (App Router, TypeScript) — un solo proyecto.
-- **Base de datos:** Prisma. Por defecto **SQLite** (cero configuración); cambia a
-  **PostgreSQL** con una variable de entorno.
+- **Base de datos:** Prisma + **PostgreSQL** (Neon). Migraciones versionadas en `prisma/migrations/`.
 - **Gráficos:** Recharts (tendencias + desglose de score).
 - **Motor de análisis:** heurístico y determinista (funciona offline), con un **hook de IA
   opcional** (Claude) para enriquecer ideas.
@@ -61,7 +60,7 @@ npm install
 cp .env.example .env
 
 # 3. Crear la base de datos + generar cliente + poblar datos demo
-npm run setup        # = prisma generate && prisma db push && seed
+npm run setup        # = prisma generate + migrate deploy + seed
 
 # 4. Arrancar
 npm run dev
@@ -147,3 +146,47 @@ Respeta los términos de servicio y límites de cada API; nada de scraping no au
 Todos los datos de ejemplo (señales, tweets, productos, tendencias) están claramente marcados
 como demo (p. ej. URLs con prefijo `demo_`). Las ideas se generan con el mismo pipeline que se
 usaría en producción, sobre esa evidencia de ejemplo.
+
+---
+
+## 🚀 Deploy en Vercel + Neon
+
+La app está configurada para **PostgreSQL** (`prisma/schema.prisma`) con migraciones
+versionadas en `prisma/migrations/`. El `build` corre `prisma migrate deploy`
+automáticamente, así que las tablas se crean solas en cada deploy.
+
+### Pasos
+
+1. **Crear la base en Neon** (https://neon.tech): crea un proyecto y copia el
+   **connection string POOLED** (el host contiene `-pooler`), con `?sslmode=require`.
+
+2. **Subir el repo a GitHub** e importarlo en Vercel (https://vercel.com/new).
+
+3. **Variables de entorno en Vercel** (Settings → Environment Variables):
+   - `DATABASE_URL` = tu connection string de Neon (pooled).
+   - `CRON_SECRET` = una cadena larga aleatoria.
+   - (Opcional) `AI_ENABLED=true` + `ANTHROPIC_API_KEY` para enriquecer ideas con IA.
+   - (Opcional) claves reales de Reddit/X/Product Hunt.
+
+4. **Deploy.** En el build, `prisma migrate deploy` crea las 7 tablas en Neon.
+
+5. **Cargar datos demo una vez** (endpoint protegido):
+   ```bash
+   curl -X POST -H "Authorization: Bearer <TU_CRON_SECRET>" \
+     https://<tu-app>.vercel.app/api/seed
+   ```
+   Listo: el dashboard muestra las 5 ideas. (También puedes correr el seed en local
+   apuntando `DATABASE_URL` a Neon: `npm run db:seed`.)
+
+### Jobs programados en Vercel
+
+`vercel.json` ya define los cron: `/api/cron/collect` cada 6 h y `/api/cron/rank`
+cada mañana (7:00). Vercel envía `Authorization: Bearer <CRON_SECRET>` y el código
+lo valida. **Nota:** en el plan **Hobby** los cron se ejecutan como máximo 1 vez al
+día; para la cadencia de cada 6 h necesitas plan **Pro**.
+
+### Notas
+
+- Para **local dev** con este setup, apunta `DATABASE_URL` a una base Postgres
+  (un proyecto gratis de Neon sirve también para local) y corre `npm run setup`.
+- La versión de Next está fijada en una release parcheada (14.2.35).
