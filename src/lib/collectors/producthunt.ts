@@ -95,12 +95,52 @@ export function activeReviewScore(p: CollectedProduct): number {
   return Math.round(Math.min(100, p.recentReviewsAskingSupport * 2.4));
 }
 
+const PH_QUERY = `
+  query {
+    posts(first: 50, order: VOTES) {
+      edges {
+        node {
+          name
+          tagline
+          url
+          votesCount
+          commentsCount
+          createdAt
+          topics { edges { node { name } } }
+        }
+      }
+    }
+  }
+`;
+
 async function fetchReal(): Promise<CollectedProduct[]> {
-  // Real Product Hunt GraphQL wiring:
-  //   POST https://api.producthunt.com/v2/api/graphql
-  //   Authorization: Bearer <PRODUCTHUNT_TOKEN>
-  // Returns [] until implemented.
-  return [];
+  try {
+    const res = await fetch("https://api.producthunt.com/v2/api/graphql", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.PRODUCTHUNT_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ query: PH_QUERY }),
+    });
+    if (!res.ok) return [];
+    const json = await res.json();
+    const edges: { node: Record<string, unknown> }[] = json?.data?.posts?.edges ?? [];
+    return edges.map(({ node: p }) => ({
+      name: String(p.name ?? ""),
+      description: String(p.tagline ?? ""),
+      url: String(p.url ?? ""),
+      launchDate: new Date(String(p.createdAt ?? Date.now())),
+      upvotes: Number(p.votesCount ?? 0),
+      commentsCount: Number(p.commentsCount ?? 0),
+      lastActivityDate: new Date(String(p.createdAt ?? Date.now())),
+      siteStatus: "unknown" as const,
+      category: ((p.topics as { edges: { node: { name: string } }[] })?.edges?.[0]?.node?.name) ?? "General",
+      recentReviewsAskingSupport: 0,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 export async function collectProductHunt(): Promise<CollectedProduct[]> {

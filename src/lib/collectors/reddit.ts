@@ -33,13 +33,54 @@ const DEMO_POSTS: { sub: string; author: string; text: string; up: number; comme
   { sub: "Entrepreneur", author: "u/bootstrapben", text: "Is there a tool that turns Stripe revenue into investor-ready monthly updates automatically? Looking for an app that just does it.", up: 198, comments: 40, daysAgo: 4 },
 ];
 
+const PAIN_QUERY = encodeURIComponent(
+  '"I wish" OR "would pay" OR "someone should build" OR "why isn\'t there" OR "pain point" OR "I need a tool"'
+);
+
+async function getToken(): Promise<string> {
+  const creds = btoa(`${process.env.REDDIT_CLIENT_ID}:${process.env.REDDIT_CLIENT_SECRET}`);
+  const res = await fetch("https://www.reddit.com/api/v1/access_token", {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${creds}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+      "User-Agent": process.env.REDDIT_USER_AGENT ?? "idea-radar/1.0",
+    },
+    body: "grant_type=client_credentials",
+  });
+  if (!res.ok) throw new Error(`Reddit auth ${res.status}`);
+  const data = await res.json();
+  return data.access_token as string;
+}
+
 async function fetchReal(): Promise<CollectedPost[]> {
-  // Placeholder for real Reddit OAuth integration. Intentionally not implemented
-  // to avoid violating ToS without proper app registration. Wire it here:
-  //   1) POST https://www.reddit.com/api/v1/access_token (client credentials)
-  //   2) GET https://oauth.reddit.com/r/<sub>/search?q=...&restrict_sr=1
-  // Map results into CollectedPost[]. Returns [] until implemented.
-  return [];
+  try {
+    const token = await getToken();
+    const ua = process.env.REDDIT_USER_AGENT ?? "idea-radar/1.0";
+    const posts: CollectedPost[] = [];
+
+    for (const sub of SUBREDDITS) {
+      const url = `https://oauth.reddit.com/r/${sub}/search?q=${PAIN_QUERY}&restrict_sr=1&sort=top&t=month&limit=25`;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}`, "User-Agent": ua },
+      });
+      if (!res.ok) continue;
+      const json = await res.json();
+      for (const { data: p } of json?.data?.children ?? []) {
+        posts.push({
+          source: "reddit",
+          sourceUrl: `https://www.reddit.com${p.permalink}`,
+          sourceAuthor: p.author ? `u/${p.author}` : null,
+          text: `${p.title}${p.selftext ? ` — ${p.selftext.slice(0, 500)}` : ""}`,
+          engagementScore: (p.ups ?? 0) + (p.num_comments ?? 0) * 2,
+          createdAtSource: new Date((p.created_utc ?? 0) * 1000),
+        });
+      }
+    }
+    return posts;
+  } catch {
+    return [];
+  }
 }
 
 export async function collectReddit(): Promise<CollectedPost[]> {
