@@ -1,0 +1,15 @@
+name: Cron - Rank
+
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+jobs:
+  rank:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call rank endpoint
+        run: |
+          curl -f -X GET "${{ secrets.APP_URL }}/api/cron/rank" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
