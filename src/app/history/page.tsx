@@ -1,21 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { ScoreBadge } from "@/components/ScoreBadge";
-import { type Idea, STATUS_LABELS, STATUS_COLORS } from "@/lib/idea";
+import { LoadMore } from "@/components/LoadMore";
+import { useIdeasFeed } from "@/lib/useIdeasFeed";
+import { STATUS_LABELS, STATUS_COLORS } from "@/lib/idea";
 
 export default function HistoryPage() {
-  const [ideas, setIdeas] = useState<Idea[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { ideas, hasMore, loadingInitial, loadingMore, loadMore } = useIdeasFeed(false);
   const [tab, setTab] = useState<"all" | "saved" | "discarded">("all");
-
-  useEffect(() => {
-    fetch("/api/ideas/history")
-      .then((r) => r.json())
-      .then((d) => setIdeas(d.ideas || []))
-      .finally(() => setLoading(false));
-  }, []);
 
   const rows = ideas.filter((i) => {
     if (tab === "saved") return i.saved && i.saved.status !== "discard";
@@ -50,7 +44,7 @@ export default function HistoryPage() {
         ))}
       </div>
 
-      {loading ? (
+      {loadingInitial ? (
         <div className="card h-64 animate-pulse" />
       ) : rows.length === 0 ? (
         <div className="card p-8 text-center text-muted">Nada por aquí todavía.</div>
@@ -89,6 +83,8 @@ export default function HistoryPage() {
           ))}
         </div>
       )}
+
+      {tab === "all" && <LoadMore hasMore={hasMore} loading={loadingMore} onLoadMore={loadMore} />}
     </div>
   );
 }

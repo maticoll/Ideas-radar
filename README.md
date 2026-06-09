@@ -84,9 +84,9 @@ Eso deja el dashboard con **5 ideas validadas**, cada una con score, evidencia y
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| GET | `/api/ideas/today` | Top 5 oportunidades del día |
+| GET | `/api/ideas/today` | Top 5 oportunidades del día (cacheado, TTL 60s) |
 | GET | `/api/ideas/:id` | Detalle completo (evidencia, trend, score, guardado) |
-| GET | `/api/ideas/history` | Todas las oportunidades + cambios de ranking |
+| GET | `/api/ideas/history` | Oportunidades paginadas por cursor (`?cursor=&take=&saved=true`); devuelve `{ ideas, nextCursor }` |
 | GET | `/api/signals` | Señales crudas (filtros: `source`, `category`, `minPain`, `limit`) |
 | GET | `/api/sources/reddit` | Señales de Reddit |
 | GET | `/api/sources/twitter` | Señales de X/Twitter |
@@ -98,6 +98,19 @@ Eso deja el dashboard con **5 ideas validadas**, cada una con score, evidencia y
 | POST/DELETE | `/api/unlock` | Desbloquea (valida `APP_PASSWORD`, setea cookie) / bloquea |
 | GET/POST | `/api/cron/collect` | Job de recolección (protegido con `CRON_SECRET`) |
 | GET/POST | `/api/cron/rank` | Job de ranking (protegido con `CRON_SECRET`) |
+
+### Lecturas: paginación y caché
+
+- `history` se pagina por **cursor** (`take` por defecto 24, máx. 100). El frontend
+  (dashboard, `/history`, `/favorites`) usa scroll infinito vía un hook compartido
+  (`src/lib/useIdeasFeed.ts`) que **dedupe** el fetch entre páginas: el feed se
+  trae una vez y se reutiliza al navegar.
+- `today` e `history` cachean las oportunidades con `unstable_cache` (TTL 60s, tag
+  `opportunities`); el estado `saved` por usuario se superpone fresco, nunca se
+  cachea. `runRanking` / el refresh llaman `revalidateTag("opportunities")` para
+  publicar el nuevo ranking al instante.
+- `?saved=true` en `history` devuelve solo las ideas guardadas del usuario
+  (paginadas), para que Favoritos no recorra todo el catálogo.
 
 ## Acceso (gate de un solo usuario)
 

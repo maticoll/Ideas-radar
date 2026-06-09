@@ -1,21 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { IdeaCard } from "@/components/IdeaCard";
-import { type Idea, STATUS_LABELS, STATUS_COLORS } from "@/lib/idea";
+import { LoadMore } from "@/components/LoadMore";
+import { useIdeasFeed } from "@/lib/useIdeasFeed";
+import { STATUS_LABELS, STATUS_COLORS } from "@/lib/idea";
 
 const ORDER = ["build", "validate", "research", "discard"];
 
 export default function FavoritesPage() {
-  const [ideas, setIdeas] = useState<Idea[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetch("/api/ideas/history")
-      .then((r) => r.json())
-      .then((d) => setIdeas((d.ideas || []).filter((i: Idea) => i.saved)))
-      .finally(() => setLoading(false));
-  }, []);
+  const { ideas, hasMore, loadingInitial, loadingMore, loadMore } = useIdeasFeed(true);
+  const loading = loadingInitial;
 
   const groups = ORDER.map((status) => ({
     status,
@@ -64,6 +58,10 @@ export default function FavoritesPage() {
             </section>
           ))}
         </div>
+      )}
+
+      {!loading && ideas.length > 0 && (
+        <LoadMore hasMore={hasMore} loading={loadingMore} onLoadMore={loadMore} />
       )}
     </div>
   );

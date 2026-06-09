@@ -1,32 +1,31 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { IdeaCard } from "@/components/IdeaCard";
+import { LoadMore } from "@/components/LoadMore";
 import { Filters, DEFAULT_FILTERS, type FilterState } from "@/components/Filters";
+import { useIdeasFeed } from "@/lib/useIdeasFeed";
 import type { Idea } from "@/lib/idea";
 
 export default function DashboardPage() {
   const [today, setToday] = useState<Idea[]>([]);
-  const [all, setAll] = useState<Idea[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loadingToday, setLoadingToday] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshMsg, setRefreshMsg] = useState("");
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
 
-  function loadData() {
-    setLoading(true);
-    return Promise.all([
-      fetch("/api/ideas/today").then((r) => r.json()),
-      fetch("/api/ideas/history").then((r) => r.json()),
-    ])
-      .then(([t, h]) => {
-        setToday(t.ideas || []);
-        setAll(h.ideas || []);
-      })
-      .finally(() => setLoading(false));
-  }
+  // The "explore all" grid shares the paginated feed with /history.
+  const { ideas: all, hasMore, loadingMore, loadMore, reload } = useIdeasFeed(false);
 
-  useEffect(() => { loadData(); }, []);
+  const loadToday = useCallback(() => {
+    setLoadingToday(true);
+    return fetch("/api/ideas/today")
+      .then((r) => r.json())
+      .then((t) => setToday(t.ideas || []))
+      .finally(() => setLoadingToday(false));
+  }, []);
+
+  useEffect(() => { loadToday(); }, [loadToday]);
 
   async function handleRefresh() {
     setRefreshing(true);
@@ -41,7 +40,7 @@ export default function DashboardPage() {
       const signals = data.collected?.signalsStored ?? 0;
       const ideas = data.ranked?.opportunitiesRanked ?? 0;
       setRefreshMsg(`Listo — ${signals} señales, ${ideas} ideas`);
-      await loadData();
+      await Promise.all([loadToday(), Promise.resolve(reload())]);
     } catch {
       setRefreshMsg("Error al actualizar");
     } finally {
@@ -101,7 +100,7 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {loading ? (
+      {loadingToday ? (
         <SkeletonGrid />
       ) : today.length === 0 ? (
         <EmptyState />
@@ -124,6 +123,7 @@ export default function DashboardPage() {
             <IdeaCard key={idea.id} idea={idea} />
           ))}
         </div>
+        <LoadMore hasMore={hasMore} loading={loadingMore} onLoadMore={loadMore} />
       </section>
     </div>
   );
