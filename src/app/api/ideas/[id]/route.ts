@@ -20,6 +20,13 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
   const evidenceSignals = opp.signals.map((s) => serializeSignal(s.rawSignal));
 
+  // Ranking history (oldest -> newest) so the detail page can chart the trend.
+  const snapshots = await prisma.rankingSnapshot.findMany({
+    where: { opportunityId: opp.id },
+    orderBy: { date: "asc" },
+    select: { rank: true, finalScore: true, date: true },
+  });
+
   const user = await getCurrentUser();
   const saved = await prisma.savedIdea.findFirst({
     where: { userId: user.id, opportunityId: opp.id },
@@ -29,6 +36,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     ...serializeOpportunity(opp),
     trend: trend ? serializeTrend(trend) : null,
     evidenceSignals,
+    history: snapshots,
     saved: saved ? { status: saved.status, notes: saved.notes } : null,
   });
 }

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ScoreBadge, scoreColor } from "@/components/ScoreBadge";
 import { TrendChart } from "@/components/TrendChart";
+import { RankHistoryChart } from "@/components/RankHistoryChart";
 import { ScoreBreakdownChart } from "@/components/ScoreBreakdownChart";
 import { SaveControls } from "@/components/SaveControls";
 import { type IdeaDetail, fmtDemand } from "@/lib/idea";
@@ -120,6 +121,22 @@ export default function IdeaDetailPage({ params }: { params: { id: string } }) {
             ) : (
               <p className="text-sm text-muted">Sin datos de tendencia para esta oportunidad.</p>
             )}
+          </div>
+
+          {/* Ranking evolution */}
+          <div className="card p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="font-semibold">Evolución del ranking</h3>
+              {idea.rankChange != null && idea.rankChange !== 0 && (
+                <span className={`text-sm ${idea.rankChange > 0 ? "text-good" : "text-bad"}`}>
+                  {idea.rankChange > 0 ? "▲" : "▼"} {Math.abs(idea.rankChange)} desde el ranking previo
+                </span>
+              )}
+            </div>
+            <RankHistoryChart data={idea.history} />
+            <p className="mt-2 text-xs text-muted">
+              Score (línea cian, 0–100) y posición en el ranking (línea ámbar, #1 arriba) a lo largo del tiempo.
+            </p>
           </div>
 
           {/* Evidence */}

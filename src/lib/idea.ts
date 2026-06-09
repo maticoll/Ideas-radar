@@ -53,6 +53,8 @@ export interface IdeaDetail extends Idea {
     matchedPattern: string | null;
     keywords: string[];
   }[];
+  // Ranking history (oldest -> newest) from RankingSnapshot.
+  history: { rank: number; finalScore: number; date: string }[];
   saved: { status: string; notes: string } | null;
 }
 
