@@ -8,7 +8,6 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "./db";
-import { toJson, fromJson } from "./json";
 import { analyzeIntent, extractKeywords, classifyCategory } from "./patterns";
 import { collectReddit } from "./collectors/reddit";
 import { collectTwitter } from "./collectors/twitter";
@@ -65,7 +64,7 @@ export async function runCollection(): Promise<CollectionResult> {
       createdAtSource: post.createdAtSource,
       language: "en",
       category: classifyCategory(post.text, keywords),
-      keywords: toJson(keywords),
+      keywords, // JSONB (string[])
       painScore: intent.painScore,
       paymentIntentScore: intent.paymentIntentScore,
       matchedPattern: intent.matchedPattern,
@@ -105,8 +104,8 @@ export async function runCollection(): Promise<CollectionResult> {
       region: t.region,
       trendScore: t.trendScore,
       growth12m: t.growth12m,
-      relatedQueries: toJson(t.relatedQueries),
-      series: toJson(t.series),
+      relatedQueries: t.relatedQueries, // JSONB (string[])
+      series: t.series, // JSONB ({month, value}[])
     };
     const id = trendIdByKeyword.get(t.keyword);
     if (id) await prisma.trend.update({ where: { id }, data });
@@ -142,9 +141,25 @@ export interface RankingResult {
   topFinalScores: number[];
 }
 
+// How far back runRanking scans raw signals for clustering. Keeps re-rankings
+// from re-processing the whole history every run. Set RANKING_WINDOW_DAYS=0 to
+// disable the window and scan every signal (original behaviour).
+function rankingWindowDays(): number {
+  const raw = Number(process.env.RANKING_WINDOW_DAYS);
+  return Number.isFinite(raw) && raw >= 0 ? raw : 90;
+}
+
 export async function runRanking(): Promise<RankingResult> {
+  // Only cluster signals collected within the window (uses the collected_at
+  // index). Older signals stay in the DB but no longer drive ranking.
+  const windowDays = rankingWindowDays();
+  const signalWhere: Prisma.RawSignalWhereInput =
+    windowDays > 0
+      ? { collectedAt: { gte: new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000) } }
+      : {};
+
   const [signals, trends, products] = await Promise.all([
-    prisma.rawSignal.findMany(),
+    prisma.rawSignal.findMany({ where: signalWhere }),
     prisma.trend.findMany(),
     prisma.productHuntProduct.findMany(),
   ]);
@@ -153,7 +168,7 @@ export async function runRanking(): Promise<RankingResult> {
   const clusters = new Map<string, Cluster>();
   let unclustered = 0;
   for (const s of signals) {
-    const keywords = fromJson<string[]>(s.keywords, []);
+    const keywords = Array.isArray(s.keywords) ? (s.keywords as string[]) : [];
     const bp = bestBlueprint(s.text, keywords);
     if (!bp) {
       unclustered++; // signal matched no blueprint — raw material for new ideas
@@ -229,6 +244,7 @@ export async function runRanking(): Promise<RankingResult> {
 
   // ---- 2. Persist opportunities (upsert by title, refresh signal links) ----
   const signalLinks: Prisma.OpportunitySignalCreateManyInput[] = [];
+  const snapshots: Prisma.RankingSnapshotCreateManyInput[] = [];
   let rank = 0;
   for (const item of scored) {
     rank++;
@@ -249,7 +265,7 @@ export async function runRanking(): Promise<RankingResult> {
       gap: enriched.gap,
       mvp: enriched.mvp,
       businessModel: enriched.businessModel,
-      competitors: toJson(bp.competitors),
+      competitors: bp.competitors, // JSONB (string[])
       category: bp.category,
       region: bp.region,
       segment: bp.segment,
@@ -260,7 +276,7 @@ export async function runRanking(): Promise<RankingResult> {
       competitionScore: item.competitionScore,
       executionScore: item.breakdown.mvpEase,
       finalScore: item.final,
-      scoreBreakdown: toJson(item.breakdown),
+      scoreBreakdown: item.breakdown as unknown as Prisma.InputJsonValue, // JSONB (ScoreBreakdown)
       trendKeyword: bp.trendKeyword,
       rankDate: new Date(),
       previousRank: prevRankByTitle.get(bp.title) ?? null,
@@ -278,9 +294,12 @@ export async function runRanking(): Promise<RankingResult> {
       opportunityId = created.id;
     }
     for (const rawSignalId of item.signalIds) signalLinks.push({ opportunityId, rawSignalId });
+    snapshots.push({ opportunityId, rank, finalScore: item.final });
   }
 
   if (signalLinks.length) await prisma.opportunitySignal.createMany({ data: signalLinks });
+  // Append one ranking-history row per opportunity (date defaults to now()).
+  if (snapshots.length) await prisma.rankingSnapshot.createMany({ data: snapshots });
 
   const result: RankingResult = {
     opportunitiesRanked: scored.length,

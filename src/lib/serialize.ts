@@ -1,5 +1,6 @@
-// Turn Prisma rows (with JSON-string fields) into clean API/UI objects.
-import { fromJson } from "./json";
+// Turn Prisma rows into clean API/UI objects. JSON columns are native JSONB, so
+// Prisma already hands them back parsed — we just narrow the types here.
+import type { Prisma } from "@prisma/client";
 import type { ScoreBreakdown, TrendPoint } from "./types";
 
 type OpportunityRow = {
@@ -12,7 +13,7 @@ type OpportunityRow = {
   gap: string;
   mvp: string;
   businessModel: string;
-  competitors: string;
+  competitors: Prisma.JsonValue;
   category: string;
   region: string;
   segment: string;
@@ -23,7 +24,7 @@ type OpportunityRow = {
   competitionScore: number;
   executionScore: number;
   finalScore: number;
-  scoreBreakdown: string;
+  scoreBreakdown: Prisma.JsonValue;
   trendKeyword: string | null;
   rankDate: Date;
   previousRank: number | null;
@@ -42,7 +43,7 @@ export function serializeOpportunity(o: OpportunityRow) {
     gap: o.gap,
     mvp: o.mvp,
     businessModel: o.businessModel,
-    competitors: fromJson<string[]>(o.competitors, []),
+    competitors: Array.isArray(o.competitors) ? (o.competitors as string[]) : [],
     category: o.category,
     region: o.region,
     segment: o.segment,
@@ -53,7 +54,7 @@ export function serializeOpportunity(o: OpportunityRow) {
     competitionScore: o.competitionScore,
     executionScore: o.executionScore,
     finalScore: o.finalScore,
-    scoreBreakdown: fromJson<ScoreBreakdown | Record<string, number>>(o.scoreBreakdown, {} as any),
+    scoreBreakdown: (o.scoreBreakdown ?? {}) as unknown as ScoreBreakdown,
     trendKeyword: o.trendKeyword,
     rank: o.rank,
     previousRank: o.previousRank,
@@ -74,7 +75,7 @@ type SignalRow = {
   collectedAt: Date;
   language: string;
   category: string;
-  keywords: string;
+  keywords: Prisma.JsonValue;
   painScore: number;
   paymentIntentScore: number;
   matchedPattern: string | null;
@@ -83,7 +84,7 @@ type SignalRow = {
 export function serializeSignal(s: SignalRow) {
   return {
     ...s,
-    keywords: fromJson<string[]>(s.keywords, []),
+    keywords: Array.isArray(s.keywords) ? (s.keywords as string[]) : [],
   };
 }
 
@@ -93,15 +94,15 @@ type TrendRow = {
   region: string;
   trendScore: number;
   growth12m: number;
-  relatedQueries: string;
-  series: string;
+  relatedQueries: Prisma.JsonValue;
+  series: Prisma.JsonValue;
   collectedAt: Date;
 };
 
 export function serializeTrend(t: TrendRow) {
   return {
     ...t,
-    relatedQueries: fromJson<string[]>(t.relatedQueries, []),
-    series: fromJson<TrendPoint[]>(t.series, []),
+    relatedQueries: Array.isArray(t.relatedQueries) ? (t.relatedQueries as string[]) : [],
+    series: Array.isArray(t.series) ? (t.series as unknown as TrendPoint[]) : [],
   };
 }

@@ -2,8 +2,8 @@
 // Provider is PostgreSQL (Neon) for Vercel deploys.
 // DATABASE_URL must point to your Postgres instance.
 // For local dev you can point DATABASE_URL to the same Neon DB (or any Postgres).
-// Array-like fields are stored as JSON strings so the schema stays portable;
-// helpers in src/lib/json.ts encode/decode them.
+// Array/object fields use native JSONB (Postgres) so they can be queried and
+// indexed; Prisma serializes/parses them automatically (no manual encode/decode).
 
 generator client {
   provider        = "prisma-client-js"
@@ -36,7 +36,7 @@ model RawSignal {
   collectedAt        DateTime            @default(now()) @map("collected_at")
   language           String              @default("en")
   category           String
-  keywords           String              @default("[]") // JSON array
+  keywords           Json                @default("[]") // string[] (JSONB)
   painScore          Int                 @default(0) @map("pain_score")
   paymentIntentScore Int                 @default(0) @map("payment_intent_score")
   matchedPattern     String?             @map("matched_pattern")
@@ -44,6 +44,8 @@ model RawSignal {
 
   @@index([source])
   @@index([category])
+  @@index([collectedAt])
+  @@index([sourceUrl])
   @@map("raw_signals")
 }
 
@@ -70,8 +72,8 @@ model Trend {
   region         String   @default("Worldwide")
   trendScore     Int      @default(0) @map("trend_score")
   growth12m      Int      @default(0) @map("growth_12m") // percent
-  relatedQueries String   @default("[]") @map("related_queries") // JSON array
-  series         String   @default("[]") // JSON array of {month, value}
+  relatedQueries Json     @default("[]") @map("related_queries") // string[] (JSONB)
+  series         Json     @default("[]") // {month, value}[] (JSONB)
   collectedAt    DateTime @default(now()) @map("collected_at")
 
   @@map("trends")
@@ -87,7 +89,7 @@ model Opportunity {
   gap                String
   mvp                String
   businessModel      String              @map("business_model")
-  competitors        String              @default("[]") // JSON array
+  competitors        Json                @default("[]") // string[] (JSONB)
   category           String
   region             String              @default("Worldwide")
   segment            String              @default("B2C") // B2B | B2C | B2B2C
@@ -98,7 +100,7 @@ model Opportunity {
   competitionScore   Int                 @default(0) @map("competition_score")
   executionScore     Int                 @default(0) @map("execution_score")
   finalScore         Int                 @default(0) @map("final_score")
-  scoreBreakdown     String              @default("{}") @map("score_breakdown") // JSON
+  scoreBreakdown     Json                @default("{}") @map("score_breakdown") // ScoreBreakdown (JSONB)
   trendKeyword       String?             @map("trend_keyword")
   rankDate           DateTime            @default(now()) @map("rank_date")
   previousRank       Int?                @map("previous_rank")
@@ -106,10 +108,26 @@ model Opportunity {
   createdAt          DateTime            @default(now()) @map("created_at")
   signals            OpportunitySignal[]
   saved              SavedIdea[]
+  snapshots          RankingSnapshot[]
 
   @@index([category])
   @@index([finalScore])
   @@map("opportunities")
+}
+
+// One row per opportunity per ranking run — lets us chart how an idea's
+// score/rank moved over time (Opportunity.rank/previousRank only keep the last
+// run). Written in bulk at the end of runRanking().
+model RankingSnapshot {
+  id            String      @id @default(cuid())
+  opportunityId String      @map("opportunity_id")
+  rank          Int
+  finalScore    Int         @map("final_score")
+  date          DateTime    @default(now())
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@index([opportunityId, date])
+  @@map("ranking_snapshots")
 }
 
 model OpportunitySignal {
