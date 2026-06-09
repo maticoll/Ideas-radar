@@ -3,10 +3,15 @@ import { Pool, neonConfig } from "@neondatabase/serverless";
 import { PrismaNeon } from "@prisma/adapter-neon";
 import ws from "ws";
 
-// Talk to Neon over WebSocket (port 443) instead of the raw Postgres port 5432.
+// Talk to Neon over HTTPS (port 443) instead of the raw Postgres port 5432.
 // This keeps the app working where 5432 is blocked (firewall / ISP / antivirus)
-// and is the recommended driver for Neon on serverless/Vercel. In Node we must
-// provide a WebSocket implementation.
+// and is the recommended driver for Neon on serverless/Vercel.
+//
+// poolQueryViaFetch routes plain queries over stateless HTTP fetch (no WebSocket)
+// — the codebase has no interactive transactions, so this covers everything and
+// dodges the `ws` masking bug that minified bundles hit on Vercel. We still set a
+// WebSocket constructor as a fallback for any path that opens a session.
+neonConfig.poolQueryViaFetch = true;
 neonConfig.webSocketConstructor = ws;
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
