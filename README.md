@@ -158,6 +158,15 @@ mock solo si faltan credenciales. Variables en `.env.example`:
 `REDDIT_CLIENT_ID/SECRET`, `TWITTER_BEARER_TOKEN`, `PRODUCTHUNT_TOKEN`, `TRENDS_PROVIDER_KEY`.
 Respeta los términos de servicio y límites de cada API; nada de scraping no autorizado.
 
+**Product Hunt — detección de abandono.** En modo real se buscan productos lanzados hace
+9–36 meses ordenados por votos (tracción histórica + edad), se hace un *health check* HTTP del
+sitio externo (`up`/`down`/`parked`/`unknown`) y se cuentan comentarios recientes pidiendo
+soporte o alternativas. **Limitación:** la API v2 de Product Hunt no expone "última actividad"
+de un producto, así que `lastActivityDate` se aproxima con la fecha del **comentario más
+reciente** (fallback a `featuredAt`/`createdAt`). El cruce de un producto abandonado con una
+oportunidad concreta todavía depende del catálogo de blueprints (`phProductName`); se generaliza
+en la mejora de descubrimiento semántico (T6).
+
 ## Nota sobre los datos demo
 
 Todos los datos de ejemplo (señales, tweets, productos, tendencias) están claramente marcados
