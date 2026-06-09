@@ -95,8 +95,25 @@ Eso deja el dashboard con **5 ideas validadas**, cada una con score, evidencia y
 | POST | `/api/ideas/:id/save` | Guardar/quitar de favoritos (`{ toggle }`) |
 | POST | `/api/ideas/:id/status` | Estado: `research`/`validate`/`discard`/`build` |
 | POST | `/api/ideas/:id/notes` | Guardar notas internas |
+| POST/DELETE | `/api/unlock` | Desbloquea (valida `APP_PASSWORD`, setea cookie) / bloquea |
 | GET/POST | `/api/cron/collect` | Job de recolección (protegido con `CRON_SECRET`) |
 | GET/POST | `/api/cron/rank` | Job de ranking (protegido con `CRON_SECRET`) |
+
+## Acceso (gate de un solo usuario)
+
+La app es de uso personal: detrás de un único password compartido, no hay sistema
+de usuarios ni registro. El flujo:
+
+- `middleware.ts` bloquea toda la app y redirige a `/unlock` si no hay sesión válida.
+- `/unlock` pide la clave; si coincide con `APP_PASSWORD`, setea una cookie httpOnly
+  **firmada** (HMAC-SHA256, expira a 30 días) y entra. El botón **«Bloquear»** del
+  `Nav` la borra.
+- Si `APP_PASSWORD` está **vacía**, el gate queda **desactivado** (app abierta) —
+  útil en local. Ponla en producción para proteger el demo.
+- Los endpoints server-to-server (`/api/cron/*`, `/api/seed`, `/api/admin/refresh`)
+  siguen protegidos por `CRON_SECRET` y **omiten** el gate al enviar el `Bearer`,
+  así los crons (GitHub Actions / Vercel Cron) no se rompen.
+- Opcional: `APP_SESSION_SECRET` firma la cookie de forma independiente del password.
 
 ## Modelo de datos
 
@@ -165,6 +182,7 @@ automáticamente, así que las tablas se crean solas en cada deploy.
 3. **Variables de entorno en Vercel** (Settings → Environment Variables):
    - `DATABASE_URL` = tu connection string de Neon (pooled).
    - `CRON_SECRET` = una cadena larga aleatoria.
+   - `APP_PASSWORD` = la clave de acceso a la app (sin ella, el demo queda abierto).
    - (Opcional) `AI_ENABLED=true` + `ANTHROPIC_API_KEY` para enriquecer ideas con IA.
    - (Opcional) claves reales de Reddit/X/Product Hunt.
 

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 const LINKS = [
   { href: "/", label: "Dashboard" },
@@ -11,6 +11,17 @@ const LINKS = [
 
 export function Nav() {
   const path = usePathname();
+  const router = useRouter();
+
+  // The unlock screen has no navigation (every link would just bounce back).
+  if (path === "/unlock") return null;
+
+  async function lock() {
+    await fetch("/api/unlock", { method: "DELETE" }).catch(() => {});
+    router.replace("/unlock");
+    router.refresh();
+  }
+
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-bg/80 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
@@ -37,6 +48,13 @@ export function Nav() {
               </Link>
             );
           })}
+          <button
+            onClick={lock}
+            className="ml-1 rounded-lg px-3 py-2 text-sm font-medium text-muted transition hover:text-white"
+            title="Bloquear el acceso"
+          >
+            Bloquear
+          </button>
         </nav>
       </div>
     </header>
