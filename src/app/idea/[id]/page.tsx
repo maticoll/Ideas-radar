@@ -143,7 +143,16 @@ export default function IdeaDetailPage({ params }: { params: { id: string } }) {
                     <span>Engagement {s.engagementScore}</span>
                     <span>Pago {s.paymentIntentScore}</span>
                     <span>Dolor {s.painScore}</span>
-                    <span className="ml-auto text-brand2">demo source ↗</span>
+                    {s.sourceUrl && (
+                      <a
+                        href={s.sourceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="ml-auto text-brand2 hover:underline"
+                      >
+                        {s.sourceUrl.includes("demo_") ? "fuente demo ↗" : "ver fuente ↗"}
+                      </a>
+                    )}
                   </div>
                 </div>
               ))}

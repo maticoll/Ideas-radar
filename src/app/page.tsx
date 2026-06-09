@@ -33,8 +33,14 @@ export default function DashboardPage() {
     setRefreshMsg("Recolectando datos...");
     try {
       const res = await fetch("/api/admin/refresh", { method: "POST" });
+      if (!res.ok) {
+        setRefreshMsg(res.status === 401 ? "Refresco deshabilitado en este entorno" : "Error al actualizar");
+        return;
+      }
       const data = await res.json();
-      setRefreshMsg(`Listo — ${data.collected?.signalsInserted ?? 0} señales, ${data.ranked?.ideasUpserted ?? 0} ideas`);
+      const signals = data.collected?.signalsStored ?? 0;
+      const ideas = data.ranked?.opportunitiesRanked ?? 0;
+      setRefreshMsg(`Listo — ${signals} señales, ${ideas} ideas`);
       await loadData();
     } catch {
       setRefreshMsg("Error al actualizar");

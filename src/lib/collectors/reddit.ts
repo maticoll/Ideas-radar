@@ -90,7 +90,8 @@ export async function collectReddit(): Promise<CollectedPost[]> {
   }
   // Demo pool — pick a rotating subset so each run looks "fresh".
   const offset = new Date().getHours() % 3;
-  return DEMO_POSTS.filter((_, i) => i % 3 !== offset || true).map((p) => ({
+  const rotated = DEMO_POSTS.filter((_, i) => i % 3 !== offset);
+  return (rotated.length ? rotated : DEMO_POSTS).map((p) => ({
     source: "reddit" as const,
     sourceUrl: `https://www.reddit.com/r/${p.sub}/comments/demo_${p.author.replace(/\W/g, "")}`,
     sourceAuthor: p.author,
