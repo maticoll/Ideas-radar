@@ -131,9 +131,38 @@ de usuarios ni registro. El flujo:
 ## Modelo de datos
 
 `users`, `raw_signals`, `product_hunt_products`, `trends`, `opportunities`,
-`opportunity_signals`, `saved_ideas` — definidos en `prisma/schema.prisma` exactamente como
-en el brief. Los campos tipo lista se guardan como JSON para ser portables entre SQLite y
-PostgreSQL.
+`opportunity_signals`, `saved_ideas` y `ranking_snapshots` — definidos en
+`prisma/schema.prisma`. Los campos de lista/objeto usan **JSONB nativo** de Postgres
+(`keywords`, `competitors`, `score_breakdown`, `related_queries`, `series`): Prisma los
+serializa/parsea solo, así que se pueden consultar e indexar (ya no hay
+`toJson`/`fromJson` manual).
+
+### Historial de ranking (`ranking_snapshots`)
+
+`Opportunity.rank`/`previousRank` solo guardan la **última** corrida. Para poder graficar
+cómo se movió una idea en el tiempo, cada `runRanking()` inserta (con `createMany`) un
+`RankingSnapshot { opportunityId, rank, finalScore, date }` por oportunidad, con índice por
+`(opportunityId, date)`. El detalle (`GET /api/ideas/:id`) devuelve esos snapshots ordenados
+por fecha en `history`, y `idea/[id]/page.tsx` los grafica (score + posición) con Recharts.
+
+### Índices
+
+`raw_signals` tiene índices en `source`, `category`, **`collected_at`** (consultas por
+ventana temporal — ver abajo) y **`source_url`** (dedupe). `opportunities` en `category` y
+`final_score`.
+
+### Migraciones (incl. el cambio JSON → JSONB)
+
+Las columnas JSON nacieron como `TEXT` (JSON serializado). La migración
+`20260609120000_t4_data_model` las convierte **in place** a `JSONB` con
+`ALTER COLUMN … SET DATA TYPE JSONB USING "<col>"::jsonb`, sin recrear tablas ni perder
+datos (los strings guardados ya eran JSON válido). Si tu base se creó con `db push` (sin
+historial de migraciones), primero hay que **baselinearla** una vez:
+
+```bash
+npx prisma migrate resolve --applied 0_init   # registra el esquema existente
+npx prisma migrate deploy                      # aplica las migraciones pendientes
+```
 
 ### Conexión a Neon (WebSocket / 443)
 
@@ -163,6 +192,13 @@ MVP y potencial B2B/B2C.
   calcula pain score y guarda señales.
 - **Cada mañana** (`runRanking`): agrupa señales similares, cruza con Google Trends, calcula
   scores, genera el ranking y deja el top 5.
+
+> **Ventana de ranking.** Para no re-clusterizar todo el histórico en cada corrida,
+> `runRanking()` solo considera señales con `collected_at` dentro de los últimos
+> `RANKING_WINDOW_DAYS` días (default **90**), apoyándose en el índice de `collected_at`. Las
+> señales más viejas quedan en la base pero ya no influyen en el ranking. El comportamiento
+> para datos recientes es idéntico al anterior; subir el valor amplía la ventana y
+> `RANKING_WINDOW_DAYS=0` la desactiva (procesa todo, como antes).
 
 Para programarlas: usa `vercel.json` (incluido) en Vercel, o el `cron` del sistema con los
 scripts `npm run cron:collect` / `npm run cron:rank`, o cualquier worker/cola.
