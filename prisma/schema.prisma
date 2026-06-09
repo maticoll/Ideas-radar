@@ -6,7 +6,8 @@
 // helpers in src/lib/json.ts encode/decode them.
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {

@@ -135,6 +135,15 @@ de usuarios ni registro. El flujo:
 en el brief. Los campos tipo lista se guardan como JSON para ser portables entre SQLite y
 PostgreSQL.
 
+### Conexión a Neon (WebSocket / 443)
+
+El cliente Prisma (`src/lib/db.ts`) usa el **driver serverless de Neon**
+(`@prisma/adapter-neon` + `@neondatabase/serverless`, preview `driverAdapters`),
+que habla Postgres **sobre WebSocket en el puerto 443**. Así la app funciona aunque
+el puerto 5432 esté bloqueado (firewall/ISP/antivirus) y es el driver recomendado en
+Vercel serverless. El **CLI de Prisma** (`migrate`, `studio`) sigue usando el 5432
+directo, así que las migraciones se corren en el deploy o en una red sin bloqueo.
+
 ### Cambiar a PostgreSQL
 
 1. En `prisma/schema.prisma`, cambia `provider = "sqlite"` por `provider = "postgresql"`.
