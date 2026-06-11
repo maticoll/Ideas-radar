@@ -189,6 +189,36 @@ de pago, nivel de dolor, engagement, crecimiento en Google Trends, falta de buen
 soluciones, demanda residual de productos abandonados, claridad de la audiencia, facilidad de
 MVP y potencial B2B/B2C.
 
+## Descubrimiento semántico (T6)
+
+El clustering ya no se limita a los 7 blueprints fijos. Con `CLUSTER_ENGINE=semantic`
+(default), `runRanking()` corre dos pasadas:
+
+1. **Blueprints como seeds**: las señales que matchean un blueprint se agrupan como antes.
+2. **Clustering semántico** (`src/lib/semantic.ts`): las señales sobrantes se vectorizan
+   con TF-IDF (determinista, sin dependencias ni claves) y se agrupan por similitud
+   coseno (greedy + merge). Cada cluster con `SEMANTIC_MIN_CLUSTER`+ señales es una
+   oportunidad candidata.
+
+Como el clustering lexical sobre textos cortos puede "pegar" posts no relacionados por una
+palabra compartida, hay un **gate de coherencia con IA**: `describeCluster()` (en
+`src/lib/ai.ts`) recibe la evidencia real del cluster y, si los posts no comparten una
+necesidad concreta, devuelve `{"coherent": false}` y el candidato se descarta. Si es
+coherente, Claude redacta título, problema, audiencia, MVP, modelo de negocio, "por qué
+ahora" y gap **desde la evidencia**. Sin clave de IA, un fallback heurístico publica el
+cluster con textos genéricos (sin gate).
+
+- **El scoring nunca depende de la IA**: los clusters dinámicos usan constantes neutras
+  (`DYNAMIC_HEURISTICS` en `pipeline.ts`) para los factores que en los blueprints están
+  calibrados a mano; la IA solo escribe texto/clasificación. Recalibrar es parte de T8.
+- La identidad estable de cada oportunidad es `Opportunity.clusterKey` (clave del
+  blueprint o `dyn-<términos>`): los títulos generados por IA no sirven como clave de
+  upsert. Migración `20260611100000_t6_cluster_key` (idempotente: se puede aplicar por el
+  driver HTTP de Neon en redes con el 5432 bloqueado — `scripts/apply-t6-migration.ts`).
+- Tuning: `SEMANTIC_SIM_THRESHOLD` (default 0.10) y `SEMANTIC_MIN_CLUSTER` (default 2),
+  barridos contra datos reales con `scripts/tune-semantic.ts`.
+- `CLUSTER_ENGINE=keyword` restaura el comportamiento solo-blueprints.
+
 ## Automatizaciones
 
 - **Cada 6 horas** (`runCollection`): recolecta, normaliza, detecta intención de pago,
@@ -206,11 +236,13 @@ MVP y potencial B2B/B2C.
 Para programarlas: usa `vercel.json` (incluido) en Vercel, o el `cron` del sistema con los
 scripts `npm run cron:collect` / `npm run cron:rank`, o cualquier worker/cola.
 
-## IA (opcional)
+## IA (opcional, activa por defecto con clave)
 
-Por defecto el motor es 100% heurístico y funciona sin claves. Si pones `AI_ENABLED=true` y
-`ANTHROPIC_API_KEY`, la capa `src/lib/ai.ts` usa Claude para afinar problema, MVP, modelo de
-negocio y "por qué ahora" a partir de la evidencia. Si la llamada falla, cae al heurístico.
+Sin `ANTHROPIC_API_KEY` el motor es 100% heurístico y funciona offline. Con clave, la IA
+queda **activa por defecto** (T5): `src/lib/ai.ts` usa Claude para (a) reescribir problema,
+MVP, modelo de negocio y "por qué ahora" de cada oportunidad desde su evidencia real, y
+(b) describir y validar los clusters semánticos de T6. `AI_ENABLED=false` la apaga sin
+quitar la clave. Si una llamada falla, cae al heurístico. El scoring nunca es IA.
 
 ## Integraciones reales (desacopladas)
 

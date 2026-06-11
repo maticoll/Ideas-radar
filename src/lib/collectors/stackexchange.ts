@@ -69,8 +69,11 @@ async function fetchReal(): Promise<CollectedPost[]> {
           sourceUrl: q.link,
           sourceAuthor: q.owner?.display_name ?? null,
           text: `${stripHtml(q.title)}${body ? ` — ${body}` : ""}`,
-          engagementScore:
-            q.score * 8 + q.answer_count * 6 + Math.min(150, Math.round(q.view_count / 25)),
+          // q.score can be negative (downvoted questions) — never store < 0.
+          engagementScore: Math.max(
+            0,
+            q.score * 8 + q.answer_count * 6 + Math.min(150, Math.round((q.view_count ?? 0) / 25)),
+          ),
           createdAtSource: new Date(q.creation_date * 1000),
         });
       }

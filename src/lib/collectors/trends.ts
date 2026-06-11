@@ -144,7 +144,17 @@ async function fetchReal(): Promise<CollectedTrend[]> {
     try {
       out.push(await fetchKeyword(t.keyword, t.region));
     } catch (err) {
-      console.warn(`[trends] keyword "${t.keyword}" failed:`, (err as Error).message);
+      const msg = (err as Error).message;
+      if (msg.includes("hasn't returned any results") || msg === "empty timeseries") {
+        // Keyword too niche for Google Trends. Store an EMPTY row anyway so
+        // the refresh window applies — otherwise it would be retried on every
+        // run and burn the provider quota. The ranking treats an empty series
+        // as "no data" (neutral default), not as zero interest.
+        out.push({ keyword: t.keyword, region: t.region, trendScore: 0, growth12m: 0, relatedQueries: [], series: [] });
+        console.warn(`[trends] "${t.keyword}": no Google Trends data — storing empty row until next refresh window`);
+      } else {
+        console.warn(`[trends] keyword "${t.keyword}" failed:`, msg);
+      }
     }
   }
   if (stale.length) console.log(`[trends] refreshed ${out.length}/${stale.length} stale keywords`);

@@ -51,7 +51,9 @@ export function computeBreakdown(inputs: ScoreInputs): ScoreBreakdown {
     mentions: clamp(Math.log2(inputs.mentionCount + 1) * 26),
     paymentIntent: clamp(inputs.avgPaymentIntent),
     pain: clamp(inputs.avgPain),
-    engagement: clamp(Math.log10(inputs.avgEngagement + 1) * 33),
+    // avgEngagement can be ≤ -1 if a source stored negative engagement
+    // (e.g. downvoted posts) — guard the log against NaN.
+    engagement: clamp(Math.log10(Math.max(0, inputs.avgEngagement) + 1) * 33),
     trendGrowth: clamp(50 + inputs.trendGrowth12m / 2),
     solutionGap: clamp(100 - inputs.competitionScore),
     abandonedDemand: clamp(inputs.abandonedDemand),
@@ -76,7 +78,7 @@ export function estimateDemand(
   trendScore: number,
 ): number {
   const base = mentionCount * 1200;
-  const engagementFactor = 1 + Math.log10(avgEngagement + 1);
+  const engagementFactor = 1 + Math.log10(Math.max(0, avgEngagement) + 1);
   const trendFactor = 0.5 + trendScore / 100;
   return Math.round(base * engagementFactor * trendFactor);
 }

@@ -81,6 +81,10 @@ model Trend {
 
 model Opportunity {
   id                 String              @id @default(cuid())
+  // Stable identity for upserts across ranking runs: blueprint key ("invoice-
+  // chaser") or semantic cluster key ("dyn-…"). AI-generated titles aren't
+  // stable enough to be the upsert key. Nullable for legacy rows.
+  clusterKey         String?             @unique @map("cluster_key")
   title              String
   problem            String
   audience           String

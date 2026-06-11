@@ -16,8 +16,9 @@ import { collectStackExchange } from "./collectors/stackexchange";
 import { collectProductHunt, abandonedScore, activeReviewScore } from "./collectors/producthunt";
 import { collectTrends } from "./collectors/trends";
 import { bestBlueprint, type Blueprint } from "./blueprints";
+import { clusterSignals, type SemanticCluster } from "./semantic";
 import { computeBreakdown, finalScore, estimateDemand } from "./scoring";
-import { enrichOpportunity } from "./ai";
+import { enrichOpportunity, describeCluster } from "./ai";
 
 export interface CollectionResult {
   redditCollected: number;
@@ -149,10 +150,29 @@ interface Cluster {
 
 export interface RankingResult {
   opportunitiesRanked: number;
+  dynamicOpportunities: number;
   signalsConsidered: number;
   signalsUnclustered: number;
   topFinalScores: number[];
 }
+
+// T6: clustering engine. "semantic" (default) runs the blueprint pass first
+// (seeds, never a closed catalog) and then clusters the leftover signals with
+// TF-IDF/cosine so new opportunities emerge from the data. "keyword" restores
+// the blueprint-only behaviour.
+function clusterEngine(): "semantic" | "keyword" {
+  return process.env.CLUSTER_ENGINE === "keyword" ? "keyword" : "semantic";
+}
+
+// Dynamic clusters have no hand-tuned blueprint heuristics, so scoring uses
+// neutral defaults: the ranking stays deterministic and AI only writes text.
+// Recalibration of these constants is T8's job.
+const DYNAMIC_HEURISTICS = {
+  competitionScore: 55,
+  audienceClarity: 60,
+  mvpEase: 60,
+  marketPotential: 60,
+};
 
 // How far back runRanking scans raw signals for clustering. Keeps re-rankings
 // from re-processing the whole history every run. Set RANKING_WINDOW_DAYS=0 to
@@ -177,14 +197,14 @@ export async function runRanking(): Promise<RankingResult> {
     prisma.productHuntProduct.findMany(),
   ]);
 
-  // ---- 1. Cluster signals into opportunities (group similar signals) ----
+  // ---- 1a. Blueprint pass: group signals into the seeded topics ----
   const clusters = new Map<string, Cluster>();
-  let unclustered = 0;
+  const unmatched: typeof signals = [];
   for (const s of signals) {
     const keywords = Array.isArray(s.keywords) ? (s.keywords as string[]) : [];
     const bp = bestBlueprint(s.text, keywords);
     if (!bp) {
-      unclustered++; // signal matched no blueprint — raw material for new ideas
+      unmatched.push(s); // raw material for semantic discovery
       continue;
     }
     let c = clusters.get(bp.key);
@@ -200,13 +220,32 @@ export async function runRanking(): Promise<RankingResult> {
     c.count++;
   }
 
-  // Snapshot previous ranks for "rank change" history.
-  const prev = await prisma.opportunity.findMany({ select: { id: true, title: true, rank: true } });
+  // ---- 1b. Semantic pass: cluster the leftovers so new ideas can emerge ----
+  let dynamicClusters: SemanticCluster[] = [];
+  if (clusterEngine() === "semantic" && unmatched.length >= 2) {
+    dynamicClusters = clusterSignals(
+      unmatched.map((s) => ({
+        id: s.id,
+        text: s.text,
+        keywords: Array.isArray(s.keywords) ? (s.keywords as string[]) : [],
+        category: s.category,
+        engagementScore: s.engagementScore,
+      })),
+    );
+  }
+  const dynClusteredIds = new Set(dynamicClusters.flatMap((c) => c.signalIds));
+  const unclustered = unmatched.length - dynClusteredIds.size;
+
+  // Snapshot previous ranks for "rank change" history. clusterKey is the
+  // stable identity; title is the fallback for legacy rows without one.
+  const prev = await prisma.opportunity.findMany({ select: { id: true, title: true, rank: true, clusterKey: true } });
   const prevRankByTitle = new Map(prev.map((o) => [o.title, o.rank ?? null]));
   const existingIdByTitle = new Map(prev.map((o) => [o.title, o.id]));
+  const prevRankByKey = new Map(prev.filter((o) => o.clusterKey).map((o) => [o.clusterKey as string, o.rank ?? null]));
+  const existingIdByKey = new Map(prev.filter((o) => o.clusterKey).map((o) => [o.clusterKey as string, o.id]));
 
-  const scored: {
-    blueprint: Blueprint;
+  interface ScoredBase {
+    clusterKey: string;
     signalIds: string[];
     breakdown: ReturnType<typeof computeBreakdown>;
     final: number;
@@ -214,18 +253,25 @@ export async function runRanking(): Promise<RankingResult> {
     competitionScore: number;
     trendScore: number;
     evidence: string;
-  }[] = [];
+  }
+  type ScoredItem =
+    | (ScoredBase & { kind: "blueprint"; blueprint: Blueprint })
+    | (ScoredBase & { kind: "dynamic"; cluster: SemanticCluster });
+  const scored: ScoredItem[] = [];
 
   for (const c of clusters.values()) {
     const bp = c.blueprint;
     const trend = trends.find((t) => t.keyword === bp.trendKeyword);
+    // Keywords too niche for Google Trends get stored with an empty series
+    // (quota guard) — treat them as "no data", not as zero interest.
+    const hasTrendData = !!trend && Array.isArray(trend.series) && (trend.series as unknown[]).length > 0;
     const product = bp.phProductName ? products.find((p) => p.name === bp.phProductName) : undefined;
 
     const avgPayment = c.paymentSum / c.count;
     const avgPain = c.painSum / c.count;
     const avgEngagement = c.engagementSum / c.count;
-    const trendGrowth = trend?.growth12m ?? 0;
-    const trendScore = trend?.trendScore ?? 30;
+    const trendGrowth = hasTrendData ? trend.growth12m : 0;
+    const trendScore = hasTrendData ? trend.trendScore : 30;
     const abandoned = product?.abandonedScore ?? 0;
 
     const breakdown = computeBreakdown({
@@ -247,41 +293,140 @@ export async function runRanking(): Promise<RankingResult> {
     const evidence =
       `${c.count} señales agrupadas desde ${sourceList.join(", ")}. ` +
       `Intención de pago promedio ${Math.round(avgPayment)}/100, dolor ${Math.round(avgPain)}/100. ` +
-      (trend ? `Google Trends "${trend.keyword}" creció ${trendGrowth}% en 12 meses. ` : "") +
+      (hasTrendData ? `Google Trends "${trend.keyword}" creció ${trendGrowth}% en 12 meses. ` : "") +
       (product ? `Producto abandonado con demanda residual: ${product.name} (abandono ${product.abandonedScore}/100).` : "");
 
-    scored.push({ blueprint: bp, signalIds: c.signalIds, breakdown, final, demandScore, competitionScore: bp.competitionScore, trendScore, evidence });
+    scored.push({ kind: "blueprint", blueprint: bp, clusterKey: bp.key, signalIds: c.signalIds, breakdown, final, demandScore, competitionScore: bp.competitionScore, trendScore, evidence });
+  }
+
+  const signalById = new Map(signals.map((s) => [s.id, s]));
+  for (const dc of dynamicClusters) {
+    const members = dc.signalIds.map((id) => signalById.get(id)!);
+    const count = members.length;
+    const avgPayment = members.reduce((acc, s) => acc + s.paymentIntentScore, 0) / count;
+    const avgPain = members.reduce((acc, s) => acc + s.painScore, 0) / count;
+    const avgEngagement = members.reduce((acc, s) => acc + s.engagementScore, 0) / count;
+    const sources = [...new Set(members.map((m) => m.source))];
+
+    const breakdown = computeBreakdown({
+      mentionCount: count,
+      avgPaymentIntent: avgPayment,
+      avgPain,
+      avgEngagement,
+      trendGrowth12m: 0, // dynamic clusters have no matched trend keyword (yet)
+      competitionScore: DYNAMIC_HEURISTICS.competitionScore,
+      abandonedDemand: 0,
+      audienceClarity: DYNAMIC_HEURISTICS.audienceClarity,
+      mvpEase: DYNAMIC_HEURISTICS.mvpEase,
+      marketPotential: DYNAMIC_HEURISTICS.marketPotential,
+    });
+    const final = finalScore(breakdown);
+    const demandScore = estimateDemand(count, avgEngagement, 30);
+
+    const evidence =
+      `${count} señales agrupadas semánticamente desde ${sources.join(", ")}. ` +
+      `Términos recurrentes: ${dc.topTerms.join(", ")}. ` +
+      `Intención de pago promedio ${Math.round(avgPayment)}/100, dolor ${Math.round(avgPain)}/100.`;
+
+    scored.push({ kind: "dynamic", cluster: dc, clusterKey: dc.key, signalIds: dc.signalIds, breakdown, final, demandScore, competitionScore: DYNAMIC_HEURISTICS.competitionScore, trendScore: 30, evidence });
   }
 
   scored.sort((a, b) => b.final - a.final);
 
-  // ---- 2. Persist opportunities (upsert by title, refresh signal links) ----
+  // ---- 2. Persist opportunities (upsert by clusterKey, refresh links) ----
   const signalLinks: Prisma.OpportunitySignalCreateManyInput[] = [];
   const snapshots: Prisma.RankingSnapshotCreateManyInput[] = [];
   let rank = 0;
+  let dynamicKept = 0;
+  let unclusteredFinal = unclustered;
+  const persistedScores: number[] = [];
   for (const item of scored) {
+    // Qualitative fields: blueprint text enriched by AI, or — for dynamic
+    // clusters — written by AI from the cluster's real evidence (heuristic
+    // fallback in both cases; scoring numbers are never AI-driven).
+    let qualitative: {
+      title: string;
+      problem: string;
+      audience: string;
+      whyNow: string;
+      gap: string;
+      mvp: string;
+      businessModel: string;
+      competitors: string[];
+      category: string;
+      region: string;
+      segment: string;
+      trendKeyword: string | null;
+    };
+    if (item.kind === "blueprint") {
+      const bp = item.blueprint;
+      const fallback = { problem: bp.problem, whyNow: bp.whyNow, mvp: bp.mvp, businessModel: bp.businessModel, gap: bp.gap };
+      const enriched = await enrichOpportunity(
+        { title: bp.title, problem: bp.problem, audience: bp.audience, category: bp.category, evidence: item.evidence },
+        fallback,
+      );
+      qualitative = {
+        title: bp.title,
+        problem: enriched.problem,
+        audience: bp.audience,
+        whyNow: enriched.whyNow,
+        gap: enriched.gap,
+        mvp: enriched.mvp,
+        businessModel: enriched.businessModel,
+        competitors: bp.competitors,
+        category: bp.category,
+        region: bp.region,
+        segment: bp.segment,
+        trendKeyword: bp.trendKeyword,
+      };
+    } else {
+      const desc = await describeCluster({
+        topTerms: item.cluster.topTerms,
+        category: item.cluster.category,
+        signalCount: item.signalIds.length,
+        sampleTexts: item.cluster.sampleTexts,
+      });
+      if (!desc) {
+        // AI coherence gate: the posts don't share one real need — drop the
+        // candidate and count its signals as unclustered.
+        console.log(`[pipeline:rank] cluster ${item.clusterKey} (${item.signalIds.length} señales) descartado por coherencia`);
+        unclusteredFinal += item.signalIds.length;
+        continue;
+      }
+      dynamicKept++;
+      console.log(`[pipeline:rank] oportunidad dinámica: "${desc.title}" (${item.clusterKey}, ${item.signalIds.length} señales, ${desc.source})`);
+      qualitative = {
+        title: desc.title,
+        problem: desc.problem,
+        audience: desc.audience,
+        whyNow: desc.whyNow,
+        gap: desc.gap,
+        mvp: desc.mvp,
+        businessModel: desc.businessModel,
+        competitors: [],
+        category: desc.category,
+        region: "Worldwide",
+        segment: desc.segment,
+        trendKeyword: null,
+      };
+    }
+
     rank++;
-    const bp = item.blueprint;
-
-    const fallback = { problem: bp.problem, whyNow: bp.whyNow, mvp: bp.mvp, businessModel: bp.businessModel, gap: bp.gap };
-    const enriched = await enrichOpportunity(
-      { title: bp.title, problem: bp.problem, audience: bp.audience, category: bp.category, evidence: item.evidence },
-      fallback,
-    );
-
+    persistedScores.push(item.final);
     const baseData = {
-      title: bp.title,
-      problem: enriched.problem,
-      audience: bp.audience,
-      whyNow: enriched.whyNow,
+      clusterKey: item.clusterKey,
+      title: qualitative.title,
+      problem: qualitative.problem,
+      audience: qualitative.audience,
+      whyNow: qualitative.whyNow,
       evidence: item.evidence,
-      gap: enriched.gap,
-      mvp: enriched.mvp,
-      businessModel: enriched.businessModel,
-      competitors: bp.competitors, // JSONB (string[])
-      category: bp.category,
-      region: bp.region,
-      segment: bp.segment,
+      gap: qualitative.gap,
+      mvp: qualitative.mvp,
+      businessModel: qualitative.businessModel,
+      competitors: qualitative.competitors, // JSONB (string[])
+      category: qualitative.category,
+      region: qualitative.region,
+      segment: qualitative.segment,
       demandScore: item.demandScore,
       painScore: item.breakdown.pain,
       paymentIntentScore: item.breakdown.paymentIntent,
@@ -290,13 +435,13 @@ export async function runRanking(): Promise<RankingResult> {
       executionScore: item.breakdown.mvpEase,
       finalScore: item.final,
       scoreBreakdown: item.breakdown as unknown as Prisma.InputJsonValue, // JSONB (ScoreBreakdown)
-      trendKeyword: bp.trendKeyword,
+      trendKeyword: qualitative.trendKeyword,
       rankDate: new Date(),
-      previousRank: prevRankByTitle.get(bp.title) ?? null,
+      previousRank: prevRankByKey.get(item.clusterKey) ?? prevRankByTitle.get(qualitative.title) ?? null,
       rank,
     };
 
-    const existingId = existingIdByTitle.get(bp.title);
+    const existingId = existingIdByKey.get(item.clusterKey) ?? existingIdByTitle.get(qualitative.title);
     let opportunityId: string;
     if (existingId) {
       await prisma.opportunity.update({ where: { id: existingId }, data: baseData });
@@ -315,10 +460,11 @@ export async function runRanking(): Promise<RankingResult> {
   if (snapshots.length) await prisma.rankingSnapshot.createMany({ data: snapshots });
 
   const result: RankingResult = {
-    opportunitiesRanked: scored.length,
+    opportunitiesRanked: rank,
+    dynamicOpportunities: dynamicKept,
     signalsConsidered: signals.length,
-    signalsUnclustered: unclustered,
-    topFinalScores: scored.slice(0, 5).map((s) => s.final),
+    signalsUnclustered: unclusteredFinal,
+    topFinalScores: persistedScores.slice(0, 5),
   };
   console.log("[pipeline:rank]", result);
   return result;
