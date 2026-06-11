@@ -2,8 +2,9 @@
 
 Detecta **oportunidades de startups validadas por demanda real** en internet. Cada día,
 Idea Radar analiza señales de dolor, intención de compra y productos abandonados en
-**Reddit, X/Twitter, Product Hunt y Google Trends**, las agrupa en oportunidades y muestra
-las **5 mejores ideas** rankeadas por tamaño de demanda y oportunidad.
+**Hacker News, Stack Exchange, Reddit, X/Twitter, Product Hunt y Google Trends**, las
+agrupa en oportunidades y muestra las **5 mejores ideas** rankeadas por tamaño de demanda
+y oportunidad.
 
 > Las integraciones externas vienen con una **capa demo/mock** lista para usar sin
 > credenciales. La estructura está desacoplada para conectar las APIs reales cuando quieras,
@@ -90,6 +91,8 @@ Eso deja el dashboard con **5 ideas validadas**, cada una con score, evidencia y
 | GET | `/api/signals` | Señales crudas (filtros: `source`, `category`, `minPain`, `limit`) |
 | GET | `/api/sources/reddit` | Señales de Reddit |
 | GET | `/api/sources/twitter` | Señales de X/Twitter |
+| GET | `/api/sources/hackernews` | Señales de Hacker News |
+| GET | `/api/sources/stackexchange` | Señales de Stack Exchange |
 | GET | `/api/sources/producthunt` | Productos abandonados con demanda residual |
 | GET | `/api/trends` | Series de Google Trends |
 | POST | `/api/ideas/:id/save` | Guardar/quitar de favoritos (`{ toggle }`) |
@@ -211,10 +214,31 @@ negocio y "por qué ahora" a partir de la evidencia. Si la llamada falla, cae al
 
 ## Integraciones reales (desacopladas)
 
-Cada collector en `src/lib/collectors/` tiene un `fetchReal()` listo para implementar y usa
-mock solo si faltan credenciales. Variables en `.env.example`:
-`REDDIT_CLIENT_ID/SECRET`, `TWITTER_BEARER_TOKEN`, `PRODUCTHUNT_TOKEN`, `TRENDS_PROVIDER_KEY`.
-Respeta los términos de servicio y límites de cada API; nada de scraping no autorizado.
+Cada collector en `src/lib/collectors/` tiene un `fetchReal()` implementado y usa mock
+solo si faltan credenciales o falla la red. Variables en `.env.example`:
+`REDDIT_CLIENT_ID/SECRET`, `TWITTER_BEARER_TOKEN`, `PRODUCTHUNT_TOKEN`,
+`TRENDS_PROVIDER_KEY`, `TRENDS_REFRESH_DAYS`. Respeta los términos de servicio y límites
+de cada API; nada de scraping no autorizado. Estado por fuente:
+
+- **Hacker News** — API pública de Algolia (`hn.algolia.com/api`), **sin credenciales**.
+  Busca frases de dolor/intención en stories + comentarios de los últimos 30 días;
+  `analyzeIntent()` en el pipeline hace el filtrado de precisión.
+- **Stack Exchange** — API pública (`api.stackexchange.com`), **sin credenciales**
+  (cuota keyless ~300 req/día; usamos 2 por corrida). `softwarerecs` y `webapps` son
+  pedidos de software por construcción, así que pasan el filtro de ruido con scores
+  base aunque el fraseo no matchee ningún patrón (`matchedPattern =
+  "Software request (Stack Exchange)"`).
+- **Product Hunt** — GraphQL v2 con `PRODUCTHUNT_TOKEN` (ver detección de abandono abajo).
+- **Reddit** — OAuth implementado; falta crear la app (gratis) en
+  https://www.reddit.com/prefs/apps y setear `REDDIT_CLIENT_ID/SECRET`.
+- **X/Twitter** — `fetchReal()` implementado sobre `/2/tweets/search/recent`, pero la
+  búsqueda **requiere tier pago** (Basic+). Con token gratuito la API devuelve 402 y el
+  collector cae a demo con un warning.
+- **Google Trends** — vía **SerpApi** (`engine=google_trends`) con `TRENDS_PROVIDER_KEY`.
+  Para respetar la cuota (~100 búsquedas/mes en el plan gratis, 2 llamadas por keyword),
+  el modo real solo refresca keywords cuyo registro tenga más de `TRENDS_REFRESH_DAYS`
+  días (default 7) y **nunca** cae a demo (los mocks comparten keywords y pisarían datos
+  reales).
 
 **Product Hunt — detección de abandono.** En modo real se buscan productos lanzados hace
 9–36 meses ordenados por votos (tracción histórica + edad), se hace un *health check* HTTP del

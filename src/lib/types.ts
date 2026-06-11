@@ -1,6 +1,6 @@
 // Shared domain types used across the engine, API and UI.
 
-export type SourceName = "reddit" | "twitter" | "producthunt";
+export type SourceName = "reddit" | "twitter" | "producthunt" | "hackernews" | "stackexchange";
 
 export type Segment = "B2B" | "B2C" | "B2B2C";
 

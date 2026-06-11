@@ -23,6 +23,16 @@ export const NEED_PATTERNS: { pattern: RegExp; label: string; weight: number }[]
   { pattern: /\bwhy is there no app for\b/i, label: "Why is there no app for…", weight: 33 },
   { pattern: /\bi wish i had a tool for\b/i, label: "I wish I had a tool for…", weight: 30 },
   { pattern: /\bhow do i automate\b/i, label: "How do I automate…", weight: 24 },
+  // Phrasings common on Stack Exchange / Hacker News asks. "alternative to"
+  // alone is too broad (matches news headlines), so it always needs tool-ish
+  // context around it.
+  { pattern: /\blooking for (?:a |an |some )?(?:free |open.?source |self.?hosted |simple )?(?:software|web ?app|app|application|tool|service|program|solution)\b/i, label: "Looking for a tool…", weight: 26 },
+  { pattern: /\bis there (?:a |an |any )?(?:free |open.?source |self.?hosted |simple )?(?:software|web ?app|app|application|tool|service|program|solution)\b/i, label: "Is there a tool…", weight: 26 },
+  { pattern: /\b(?:can (?:anyone|someone|you) )?recommend (?:me )?(?:a |an |any |some )?(?:software|web ?app|app|application|tool|service|program)\b/i, label: "Recommend a tool…", weight: 24 },
+  { pattern: /\brecommendations? (?:for|of|on) (?:a |an |any |some )?(?:software|web ?app|app|application|tool|service|program)\b/i, label: "Recommend a tool…", weight: 24 },
+  { pattern: /\b(?:looking for|need|want|searching for) (?:a |an )?(?:free |open.?source |self.?hosted |better |cheaper |good )?alternatives? to\b/i, label: "Alternative to…", weight: 24 },
+  { pattern: /\b(?:free|open.?source|self.?hosted|better|cheaper|good) alternatives? to\b/i, label: "Alternative to…", weight: 24 },
+  { pattern: /\bany (?:good |free )?(?:tool|app|software|service) (?:for|that|to)\b/i, label: "Any tool for…", weight: 24 },
 ];
 
 // Phrases that signal pain / frustration.

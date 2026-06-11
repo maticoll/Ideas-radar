@@ -6,6 +6,8 @@ const SOURCE_ICON: Record<string, string> = {
   reddit: "Reddit",
   twitter: "X",
   producthunt: "Product Hunt",
+  hackernews: "Hacker News",
+  stackexchange: "Stack Exchange",
 };
 
 export function IdeaCard({ idea, index }: { idea: Idea; index?: number }) {

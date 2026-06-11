@@ -13,6 +13,8 @@ const SOURCE_LABEL: Record<string, string> = {
   reddit: "Reddit",
   twitter: "X / Twitter",
   producthunt: "Product Hunt",
+  hackernews: "Hacker News",
+  stackexchange: "Stack Exchange",
 };
 
 export default function IdeaDetailPage({ params }: { params: { id: string } }) {

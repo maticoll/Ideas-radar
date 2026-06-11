@@ -11,6 +11,8 @@ import { prisma } from "./db";
 import { analyzeIntent, extractKeywords, classifyCategory } from "./patterns";
 import { collectReddit } from "./collectors/reddit";
 import { collectTwitter } from "./collectors/twitter";
+import { collectHackerNews } from "./collectors/hackernews";
+import { collectStackExchange } from "./collectors/stackexchange";
 import { collectProductHunt, abandonedScore, activeReviewScore } from "./collectors/producthunt";
 import { collectTrends } from "./collectors/trends";
 import { bestBlueprint, type Blueprint } from "./blueprints";
@@ -20,6 +22,8 @@ import { enrichOpportunity } from "./ai";
 export interface CollectionResult {
   redditCollected: number;
   twitterCollected: number;
+  hackernewsCollected: number;
+  stackexchangeCollected: number;
   signalsStored: number;
   noiseFiltered: number;
   productsStored: number;
@@ -27,15 +31,17 @@ export interface CollectionResult {
 }
 
 export async function runCollection(): Promise<CollectionResult> {
-  const [reddit, twitter, products, trends] = await Promise.all([
+  const [reddit, twitter, hackernews, stackexchange, products, trends] = await Promise.all([
     collectReddit(),
     collectTwitter(),
+    collectHackerNews(),
+    collectStackExchange(),
     collectProductHunt(),
     collectTrends(),
   ]);
 
   let noise = 0;
-  const posts = [...reddit, ...twitter];
+  const posts = [...reddit, ...twitter, ...hackernews, ...stackexchange];
 
   // Prefetch existing signal URLs once (was N+1: one findFirst per post).
   const existing = await prisma.rawSignal.findMany({
@@ -47,7 +53,11 @@ export async function runCollection(): Promise<CollectionResult> {
   const toCreate: Prisma.RawSignalCreateManyInput[] = [];
   for (const post of posts) {
     const intent = analyzeIntent(post.text);
-    if (!intent.isSignal) {
+    // Stack Exchange (softwarerecs/webapps) questions are software requests by
+    // construction — the site is the demand signal, so they pass with modest
+    // baseline scores even when no regex pattern matches the phrasing.
+    const inherentDemand = post.source === "stackexchange";
+    if (!intent.isSignal && !inherentDemand) {
       noise++; // separate noise from valuable signals
       continue;
     }
@@ -65,9 +75,9 @@ export async function runCollection(): Promise<CollectionResult> {
       language: "en",
       category: classifyCategory(post.text, keywords),
       keywords, // JSONB (string[])
-      painScore: intent.painScore,
-      paymentIntentScore: intent.paymentIntentScore,
-      matchedPattern: intent.matchedPattern,
+      painScore: intent.isSignal ? intent.painScore : 20,
+      paymentIntentScore: intent.isSignal ? intent.paymentIntentScore : 15,
+      matchedPattern: intent.matchedPattern ?? "Software request (Stack Exchange)",
     });
   }
   if (toCreate.length) await prisma.rawSignal.createMany({ data: toCreate });
@@ -106,6 +116,7 @@ export async function runCollection(): Promise<CollectionResult> {
       growth12m: t.growth12m,
       relatedQueries: t.relatedQueries, // JSONB (string[])
       series: t.series, // JSONB ({month, value}[])
+      collectedAt: new Date(), // freshness marker — drives the trends refresh window
     };
     const id = trendIdByKeyword.get(t.keyword);
     if (id) await prisma.trend.update({ where: { id }, data });
@@ -115,6 +126,8 @@ export async function runCollection(): Promise<CollectionResult> {
   const result: CollectionResult = {
     redditCollected: reddit.length,
     twitterCollected: twitter.length,
+    hackernewsCollected: hackernews.length,
+    stackexchangeCollected: stackexchange.length,
     signalsStored: stored,
     noiseFiltered: noise,
     productsStored: products.length,

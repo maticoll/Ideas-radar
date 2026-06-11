@@ -5,7 +5,7 @@
 // with no credentials. Clearly marked as demo via sourceUrl prefix.
 
 export interface CollectedPost {
-  source: "reddit" | "twitter";
+  source: "reddit" | "twitter" | "hackernews" | "stackexchange";
   sourceUrl: string;
   sourceAuthor: string | null;
   text: string;
@@ -16,6 +16,7 @@ export interface CollectedPost {
 const SUBREDDITS = [
   "freelance", "smallbusiness", "Entrepreneur", "SaaS", "webdev",
   "productivity", "Notion", "shopify", "marketing", "selfhosted",
+  "startups", "indiehackers", "sidehustle", "ecommerce", "agency",
 ];
 
 const DEMO_POSTS: { sub: string; author: string; text: string; up: number; comments: number; daysAgo: number }[] = [
